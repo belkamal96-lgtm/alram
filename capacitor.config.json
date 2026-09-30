@@ -1,0 +1,15 @@
+{
+  "appId": "com.prabhat.nepalialarm",
+  "appName": "Prabhat Nepali Alarm",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://ais-dev-ysioqyksysy2x672sips2d-79227567953.asia-east1.run.app",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  }
+}
