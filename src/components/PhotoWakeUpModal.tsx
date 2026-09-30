@@ -4,11 +4,12 @@ import {
   CheckCircle2,
   RefreshCw,
   BellRing,
-  AlertTriangle,
   Smile,
-  SunMedium,
   Sparkles,
   Volume2,
+  Upload,
+  Image as ImageIcon,
+  FolderOpen,
 } from 'lucide-react';
 import { Alarm, WakeUpLogEntry } from '../types/alarm';
 import { getNepaliTimeInfo } from '../utils/nepaliTime';
@@ -18,21 +19,29 @@ import { saveWakeUpLog } from '../utils/indexedDB';
 interface PhotoWakeUpModalProps {
   alarm: Alarm;
   onDismiss: () => void;
+  initialMode?: 'upload' | 'camera';
 }
 
-export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDismiss }) => {
+export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({
+  alarm,
+  onDismiss,
+  initialMode = 'camera',
+}) => {
+  const [activeMode, setActiveMode] = useState<'upload' | 'camera'>(initialMode);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [isFaceDetected, setIsFaceDetected] = useState(false);
-  const [faceCheckStatus, setFaceCheckStatus] = useState<'checking' | 'detected' | 'not_detected'>('checking');
+  const [faceCheckStatus, setFaceCheckStatus] = useState<
+    'checking' | 'detected' | 'not_detected'
+  >('checking');
   const [dismissedSuccess, setDismissedSuccess] = useState(false);
   const [wakeUpTimeStr, setWakeUpTimeStr] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const nativeCameraInputRef = useRef<HTMLInputElement>(null);
   const detectionIntervalRef = useRef<number | null>(null);
   const vibrationIntervalRef = useRef<number | null>(null);
 
@@ -49,7 +58,14 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
       }, 3000);
     }
 
-    startCamera();
+    if (initialMode === 'camera') {
+      startCamera();
+    } else {
+      // Auto open upload picker if requested
+      setTimeout(() => {
+        galleryInputRef.current?.click();
+      }, 300);
+    }
 
     return () => {
       stopCamera();
@@ -60,7 +76,7 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
         navigator.vibrate(0);
       }
     };
-  }, []);
+  }, [initialMode]);
 
   const startCamera = async () => {
     setCameraError(null);
@@ -87,11 +103,17 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
       console.warn('Camera stream error:', err);
       const errorMsg = err instanceof Error ? err.message : String(err);
       if (errorMsg.includes('Permission') || errorMsg.includes('denied')) {
-        setCameraError('Camera access was denied. You can take a photo using the photo capture button below.');
+        setCameraError(
+          'Camera access not allowed. You can upload any photo or take one with your phone camera below.'
+        );
       } else {
-        setCameraError('Unable to access front camera directly. Please use the camera snap button.');
+        setCameraError(
+          'Live camera unavailable. Please upload a photo to turn off the alarm.'
+        );
       }
       setCameraActive(false);
+      // Auto switch to upload mode if camera fails
+      setActiveMode('upload');
     }
   };
 
@@ -109,11 +131,16 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
 
   // Real-time face detection / wake-up verification loop
   const startFaceTracking = () => {
-    // Check if Experimental Shape Detection FaceDetector is supported
-    const hasNativeFaceDetector = typeof window !== 'undefined' && 'FaceDetector' in window;
+    const hasNativeFaceDetector =
+      typeof window !== 'undefined' && 'FaceDetector' in window;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const nativeDetector = hasNativeFaceDetector ? new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 2 }) : null;
+    const nativeDetector = hasNativeFaceDetector
+      ? new (window as any).FaceDetector({
+          fastMode: true,
+          maxDetectedFaces: 2,
+        })
+      : null;
 
     detectionIntervalRef.current = window.setInterval(async () => {
       if (!videoRef.current || !cameraActive || capturedPhoto) return;
@@ -130,13 +157,11 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
             return;
           }
         } catch {
-          // fallback to algorithmic frame analysis
+          // fallback to algorithmic analysis
         }
       }
 
-      // Algorithmic Face & Brightness Analysis Fallback:
-      // Analyzes center oval area of video to ensure user is positioned in front of the lens
-      // and room is not pitch black or lens blocked
+      // Algorithmic frame analysis fallback
       try {
         const offscreen = document.createElement('canvas');
         offscreen.width = 80;
@@ -164,7 +189,6 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
 
         const avgBrightness = totalBrightness / (data.length / 4);
 
-        // A valid face in daylight/room lighting has reasonable brightness and variation (features)
         if (avgBrightness > 25 && variation > 800) {
           setIsFaceDetected(true);
           setFaceCheckStatus('detected');
@@ -192,28 +216,18 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    // Reset transform for text overlay
+    // Reset transform for watermark overlay
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // Stamp watermark
-    const npt = getNepaliTimeInfo();
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-    ctx.fillRect(0, canvas.height - 70, canvas.width, 70);
-
-    ctx.fillStyle = '#f59e0b'; // Amber
-    ctx.font = 'bold 22px sans-serif';
-    ctx.fillText(`☀️ AWAKE: ${npt.time12} NPT`, 20, canvas.height - 40);
-
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = '14px sans-serif';
-    ctx.fillText(`${npt.dateBS.formattedNepali} • ${alarm.label || 'Morning Alarm'}`, 20, canvas.height - 18);
+    stampWatermark(ctx, canvas.width, canvas.height);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     setCapturedPhoto(dataUrl);
     stopCamera();
   };
 
-  // Fallback file capture for devices with camera permissions issue
+  // Handle photo from file upload or native camera
   const handleFileCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -229,33 +243,47 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
         if (!ctx) return;
 
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const npt = getNepaliTimeInfo();
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-        ctx.fillRect(0, canvas.height - 70, canvas.width, 70);
-
-        ctx.fillStyle = '#f59e0b';
-        ctx.font = 'bold 22px sans-serif';
-        ctx.fillText(`☀️ AWAKE: ${npt.time12} NPT`, 20, canvas.height - 40);
-
-        ctx.fillStyle = '#e2e8f0';
-        ctx.font = '14px sans-serif';
-        ctx.fillText(`${npt.dateBS.formattedNepali} • ${alarm.label || 'Morning Alarm'}`, 20, canvas.height - 18);
+        stampWatermark(ctx, canvas.width, canvas.height);
 
         setCapturedPhoto(canvas.toDataURL('image/jpeg', 0.85));
+        stopCamera();
       };
       img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
 
+  const stampWatermark = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number
+  ) => {
+    const npt = getNepaliTimeInfo();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+    ctx.fillRect(0, height - 70, width, 70);
+
+    ctx.fillStyle = '#f59e0b'; // Amber
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(`☀️ AWAKE: ${npt.time12} NPT`, 20, height - 40);
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '14px sans-serif';
+    ctx.fillText(
+      `${npt.dateBS.formattedNepali} • ${alarm.label || 'Morning Alarm'}`,
+      20,
+      height - 18
+    );
+  };
+
   const handleRetake = () => {
     setCapturedPhoto(null);
     setIsFaceDetected(false);
-    startCamera();
+    if (activeMode === 'camera') {
+      startCamera();
+    }
   };
 
-  // THE OK BUTTON: Only after tapping OK does the alarm ringing stop!
+  // THE OK BUTTON: Stops alarm ringing and saves record
   const handleConfirmOkAndStopAlarm = async () => {
     if (!capturedPhoto) return;
 
@@ -268,7 +296,7 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
       navigator.vibrate(0);
     }
 
-    // 2. Save selfie to Wake-Up History
+    // 2. Save record to Wake-Up History
     const npt = getNepaliTimeInfo();
     const logEntry: WakeUpLogEntry = {
       id: `wakeup_${Date.now()}`,
@@ -290,10 +318,10 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
 
     setDismissedSuccess(true);
 
-    // Complete dismissal after celebration animation
+    // Complete dismissal after celebration
     setTimeout(() => {
       onDismiss();
-    }, 2200);
+    }, 2000);
   };
 
   return (
@@ -317,7 +345,7 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
                 Alarm Turned Off • Wake-Up Verified!
               </p>
               <p className="text-xs text-slate-400 pt-1">
-                You took your selfie and beat the sleep at {wakeUpTimeStr} NPT.
+                Photo verified at {wakeUpTimeStr} NPT.
               </p>
             </div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800 text-amber-300 text-xs font-medium">
@@ -336,38 +364,86 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
 
               <div>
                 <p className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white font-mono">
-                  {alarm.time} <span className="text-xl sm:text-2xl text-amber-400">NPT</span>
+                  {alarm.time}{' '}
+                  <span className="text-xl sm:text-2xl text-amber-400">NPT</span>
                 </p>
                 <p className="text-sm font-semibold text-slate-300 mt-1">
                   {alarm.label || 'Wake Up Alarm'}
                 </p>
               </div>
 
-              <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
-                <p className="font-semibold flex items-center justify-center gap-1.5">
-                  <Camera className="w-4 h-4 text-amber-400" />
-                  <span>Wake-Up Photo Challenge</span>
-                </p>
-                <p className="text-[11px] text-slate-300 mt-0.5">
-                  Alarm will <strong className="text-amber-300">not stop ringing</strong> until you take a selfie and tap <strong>OK</strong>!
-                </p>
-              </div>
+              {/* Mode Switcher Tabs */}
+              {!capturedPhoto && (
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={() => {
+                      setActiveMode('upload');
+                      stopCamera();
+                      galleryInputRef.current?.click();
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      activeMode === 'upload'
+                        ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Upload Photo</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveMode('camera');
+                      startCamera();
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      activeMode === 'camera'
+                        ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Live Camera</span>
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Camera Viewfinder or Photo Preview */}
+            {/* Photo Preview / Live Camera / Upload Zone */}
             <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner flex items-center justify-center">
               {capturedPhoto ? (
-                // Captured Photo Preview
+                // Captured/Uploaded Photo Preview
                 <div className="relative w-full h-full">
                   <img
                     src={capturedPhoto}
-                    alt="Captured wake up selfie"
+                    alt="Captured wake up photo"
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-emerald-600/90 text-white text-[11px] font-semibold flex items-center gap-1 shadow-md">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Selfie Ready!</span>
+                    <span>Photo Verified!</span>
                   </div>
+                </div>
+              ) : activeMode === 'upload' ? (
+                // Direct Photo Upload Card (Works everywhere, even when locked / lockscreen)
+                <div
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="w-full h-full p-6 flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-slate-900 to-slate-950 cursor-pointer hover:bg-slate-900/90 transition group border-2 border-dashed border-amber-500/40 rounded-2xl"
+                >
+                  <div className="w-16 h-16 rounded-2xl bg-amber-500/15 group-hover:bg-amber-500/25 text-amber-400 flex items-center justify-center transition shadow-lg">
+                    <FolderOpen className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <p className="text-base font-bold text-white group-hover:text-amber-300 transition">
+                      Tap to Upload Photo
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-[240px]">
+                      Choose any photo from your gallery or files to turn off the alarm
+                    </p>
+                  </div>
+                  <span className="mt-1 px-4 py-1.5 rounded-full bg-amber-500 text-slate-950 font-bold text-xs shadow-md">
+                    Choose Photo
+                  </span>
                 </div>
               ) : cameraActive ? (
                 // Live Camera View
@@ -390,21 +466,27 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
                       }`}
                     >
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-950/80 text-amber-300">
-                        {faceCheckStatus === 'detected' ? 'Face Centered ✓' : 'Position Face Here'}
+                        {faceCheckStatus === 'detected'
+                          ? 'Face Centered ✓'
+                          : 'Position Face Here'}
                       </span>
                       <Smile
                         className={`w-8 h-8 transition ${
-                          faceCheckStatus === 'detected' ? 'text-emerald-400 scale-110' : 'text-amber-400/50'
+                          faceCheckStatus === 'detected'
+                            ? 'text-emerald-400 scale-110'
+                            : 'text-amber-400/50'
                         }`}
                       />
                       <span className="text-[9px] font-medium text-slate-300 bg-slate-950/80 px-2 py-0.5 rounded-full">
-                        {faceCheckStatus === 'detected' ? 'Eyes open!' : 'Open your eyes wide'}
+                        {faceCheckStatus === 'detected'
+                          ? 'Ready to snap!'
+                          : 'Open eyes wide'}
                       </span>
                     </div>
                   </div>
                 </div>
               ) : (
-                // Fallback state if camera permissions are blocked
+                // Fallback if camera stream failed
                 <div className="p-6 text-center space-y-3">
                   <div className="w-12 h-12 rounded-full bg-slate-800 text-amber-400 mx-auto flex items-center justify-center">
                     <Camera className="w-6 h-6" />
@@ -412,14 +494,18 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
                   <div>
                     <p className="text-xs font-semibold text-white">Camera Preview</p>
                     <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
-                      {cameraError || 'Tap button below to snap your wake-up photo directly.'}
+                      {cameraError ||
+                        'Tap Upload Photo to choose any picture and turn off the alarm.'}
                     </p>
                   </div>
                   <button
-                    onClick={startCamera}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200"
+                    onClick={() => {
+                      setActiveMode('upload');
+                      galleryInputRef.current?.click();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs"
                   >
-                    Retry Live Camera
+                    Upload Photo Instead
                   </button>
                 </div>
               )}
@@ -431,10 +517,17 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
               </div>
             </div>
 
-            {/* Hidden Input for Mobile Native Camera Fallback */}
+            {/* Hidden Inputs for File Selection & Mobile Native Camera */}
             <input
               type="file"
-              ref={fileInputRef}
+              ref={galleryInputRef}
+              accept="image/*"
+              onChange={handleFileCapture}
+              className="hidden"
+            />
+            <input
+              type="file"
+              ref={nativeCameraInputRef}
               accept="image/*"
               capture="user"
               onChange={handleFileCapture}
@@ -444,7 +537,7 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
             {/* Actions Section */}
             <div className="mt-5 space-y-3">
               {capturedPhoto ? (
-                // Photo Taken State -> USER MUST TAP OK TO STOP RINGING!
+                // Photo Taken / Uploaded State -> USER MUST TAP OK TO STOP RINGING!
                 <div className="space-y-2">
                   <button
                     onClick={handleConfirmOkAndStopAlarm}
@@ -456,35 +549,54 @@ export const PhotoWakeUpModal: React.FC<PhotoWakeUpModalProps> = ({ alarm, onDis
 
                   <button
                     onClick={handleRetake}
-                    className="w-full py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1"
+                    className="w-full py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Retake Photo</span>
+                    <span>Retake / Choose Another Photo</span>
                   </button>
                 </div>
               ) : (
-                // Photo Not Taken Yet -> Camera Snap Buttons
+                // Photo Not Selected Yet -> Primary Buttons
                 <div className="space-y-2">
-                  {cameraActive ? (
-                    <button
-                      onClick={handleSnapPhoto}
-                      className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
-                    >
-                      <Camera className="w-5 h-5" />
-                      <span>Take Photo to Stop Alarm</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
-                    >
-                      <Camera className="w-5 h-5" />
-                      <span>Open Camera & Snap Photo</span>
-                    </button>
-                  )}
+                  {/* Big Upload Photo Button */}
+                  <button
+                    onClick={() => {
+                      setActiveMode('upload');
+                      galleryInputRef.current?.click();
+                    }}
+                    className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
+                  >
+                    <Upload className="w-5 h-5" />
+                    <span>Upload Photo to Stop Alarm</span>
+                  </button>
 
-                  <p className="text-[11px] text-slate-400">
-                    Song: <span className="text-amber-300 font-medium">{alarm.soundName || 'Nepali Flute'}</span> • Keeps ringing until OK is tapped
+                  {/* Secondary Camera Snap Button */}
+                  <div className="flex items-center gap-2">
+                    {cameraActive ? (
+                      <button
+                        onClick={handleSnapPhoto}
+                        className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Camera className="w-4 h-4 text-amber-400" />
+                        <span>Snap Live Selfie</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => nativeCameraInputRef.current?.click()}
+                        className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Camera className="w-4 h-4 text-amber-400" />
+                        <span>Take Phone Photo</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 pt-1">
+                    Song:{' '}
+                    <span className="text-amber-300 font-medium">
+                      {alarm.soundName || 'Nepali Flute'}
+                    </span>{' '}
+                    • Alarm will keep ringing until you upload or take a photo and tap OK
                   </p>
                 </div>
               )}

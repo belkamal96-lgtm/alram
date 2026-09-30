@@ -34,7 +34,6 @@ import { AlarmModal } from './components/AlarmModal';
 import { PhotoWakeUpModal } from './components/PhotoWakeUpModal';
 import { WakeUpGallery } from './components/WakeUpGallery';
 import { CalendarSyncPanel } from './components/CalendarSyncPanel';
-import { OfflineIndicator } from './components/OfflineIndicator';
 import { createAlarmCalendarEvent } from './services/calendarService';
 import { getAccessToken } from './services/firebaseAuth';
 import { PermissionsModal } from './components/PermissionsModal';
@@ -44,6 +43,7 @@ import {
   startBackgroundAudioKeepAlive,
   showAlarmBackgroundNotification,
   getPermissionsStatus,
+  requestWebLockKeepAlive,
 } from './utils/backgroundAlarmManager';
 
 const LOCAL_STORAGE_KEY = 'prabhat_nepali_alarms_v1';
@@ -109,6 +109,7 @@ export default function App() {
 
   // Active ringing alarm (triggers full-screen wake-up photo challenge)
   const [ringingAlarm, setRingingAlarm] = useState<Alarm | null>(null);
+  const [photoModalMode, setPhotoModalMode] = useState<'upload' | 'camera'>('camera');
 
   // Testing sound in card
   const [testingAlarmId, setTestingAlarmId] = useState<string | null>(null);
@@ -132,21 +133,96 @@ export default function App() {
     getPermissionsStatus().then((s) => setNotifGranted(s.notifications === 'granted'));
   }, []);
 
-  // Unlock audio system on first user gesture (ensures audio plays in background)
+  // Check URL parameters for lockscreen action triggers
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const action = params.get('action');
+      if (action === 'upload_photo' || action === 'photo_challenge') {
+        setPhotoModalMode(action === 'upload_photo' ? 'upload' : 'camera');
+        const activeAlarm = alarms.find((a) => a.enabled) || alarms[0] || {
+          id: 'lockscreen_alarm',
+          time: getNepaliTimeInfo().timeShort24,
+          label: 'Morning Alarm',
+          enabled: true,
+          repeatDays: [],
+          soundId: 'nepali_flute',
+          soundName: 'Himalayan Morning Flute',
+          volume: 95,
+          vibrate: true,
+          gradualVolume: false,
+          requirePhoto: true,
+          snoozeMinutes: 0,
+          createdAt: Date.now(),
+        };
+        triggerAlarm(activeAlarm);
+      }
+    }
+  }, []);
+
+  // Listen for lockscreen action messages from Service Worker
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      const handleSwMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'LOCKSCREEN_ALARM_ACTION') {
+          const action = event.data.action;
+          setPhotoModalMode(action === 'upload_photo' ? 'upload' : 'camera');
+          setRingingAlarm((prev) => {
+            if (prev) return prev;
+            return alarms.find((a) => a.enabled) || alarms[0] || {
+              id: 'lockscreen_alarm',
+              time: getNepaliTimeInfo().timeShort24,
+              label: 'Morning Alarm',
+              enabled: true,
+              repeatDays: [],
+              soundId: 'nepali_flute',
+              soundName: 'Himalayan Morning Flute',
+              volume: 95,
+              vibrate: true,
+              gradualVolume: false,
+              requirePhoto: true,
+              snoozeMinutes: 0,
+              createdAt: Date.now(),
+            };
+          });
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    }
+  }, [alarms]);
+
+  // Unlock audio system on first user gesture and acquire background locks
   useEffect(() => {
     const handleFirstGesture = () => {
       unlockAudioSystem();
       startBackgroundAudioKeepAlive();
-      window.removeEventListener('click', handleFirstGesture);
-      window.removeEventListener('touchstart', handleFirstGesture);
+      requestWebLockKeepAlive();
     };
-    window.addEventListener('click', handleFirstGesture, { once: true });
-    window.addEventListener('touchstart', handleFirstGesture, { once: true });
+    window.addEventListener('click', handleFirstGesture, { passive: true });
+    window.addEventListener('touchstart', handleFirstGesture, { passive: true });
     return () => {
       window.removeEventListener('click', handleFirstGesture);
       window.removeEventListener('touchstart', handleFirstGesture);
     };
   }, []);
+
+  // Handle phone locking and tab visibility state
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const currentNpt = getNepaliTimeInfo();
+        setNepaliTime(currentNpt);
+        checkAlarms(currentNpt);
+      } else {
+        // Phone locked or minimized -> ensure background keep-alive is humming
+        startBackgroundAudioKeepAlive();
+        requestWebLockKeepAlive();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [alarms, ringingAlarm]);
 
   // Check alarms logic
   const checkAlarms = (currentNpt: NepaliTimeInfo) => {
@@ -356,8 +432,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col max-w-lg mx-auto shadow-2xl relative">
-      <OfflineIndicator />
-
       {/* Main Content Area */}
       <main className="flex-1 p-4 sm:p-5 pb-28 space-y-5">
         {/* Top App Title Header */}
@@ -615,6 +689,7 @@ export default function App() {
       {ringingAlarm && (
         <PhotoWakeUpModal
           alarm={ringingAlarm}
+          initialMode={photoModalMode}
           onDismiss={handleDismissRingingAlarm}
         />
       )}

@@ -208,11 +208,11 @@ export const SoundSelectorModal: React.FC<SoundSelectorModalProps> = ({
                 <span className="text-sm font-semibold text-white">Import Device Music</span>
               </div>
               <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">
-                100% Offline Ready
+                Custom Music
               </span>
             </div>
             <p className="text-xs text-slate-400 mb-3">
-              Upload your favorite song (MP3, WAV, AAC, M4A, OGG) from phone storage. It will be saved locally and plays even without internet.
+              Upload your favorite song (MP3, WAV, AAC, M4A, OGG) from phone storage to wake up to.
             </p>
 
             <input
@@ -270,7 +270,7 @@ export const SoundSelectorModal: React.FC<SoundSelectorModalProps> = ({
                           <div className="truncate">
                             <p className="text-xs font-semibold truncate text-white">{sound.name}</p>
                             <p className="text-[10px] text-slate-400">
-                              {(sound.size / (1024 * 1024)).toFixed(1)} MB • Offline Audio
+                              {(sound.size / (1024 * 1024)).toFixed(1)} MB • Custom Audio
                             </p>
                           </div>
                         </div>

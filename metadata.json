@@ -1,6 +1,6 @@
 {
   "name": "Prabhat - Nepali Alarm & Photo Wake-Up",
-  "description": "Offline-ready Nepali Time alarm clock with custom music and mandatory photo selfie wake-up challenge.",
+  "description": "Nepali Time alarm clock with custom music and mandatory photo selfie wake-up challenge.",
   "requestFramePermissions": [
     "camera",
     "notifications",

@@ -16,7 +16,7 @@ export default defineConfig(() => {
           id: '/',
           name: 'Prabhat - Nepali Alarm',
           short_name: 'Prabhat',
-          description: 'Offline-ready Nepali Time alarm clock with custom music and photo selfie wake-up verification.',
+          description: 'Nepali Time alarm clock with custom music and photo selfie wake-up verification.',
           theme_color: '#0f172a',
           background_color: '#0b0f19',
           display: 'standalone',
@@ -45,6 +45,7 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          importScripts: ['/sw-alarm-handler.js'],
         },
         devOptions: {
           enabled: true,

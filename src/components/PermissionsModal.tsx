@@ -304,7 +304,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                   • <strong>Audio Keep-Alive:</strong> Enabling Background Audio keeps the phone's sound hardware awake so the alarm song rings without delay.
                 </p>
                 <p>
-                  • <strong>Zero Internet:</strong> Works 100% offline in Airplane mode!
+                  • <strong>Lockscreen Support:</strong> Wake-up challenge and photo upload buttons appear directly on your lock screen!
                 </p>
               </div>
             )}

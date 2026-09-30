@@ -144,12 +144,32 @@ export async function preRequestCameraPermission(): Promise<boolean> {
 }
 
 /**
- * Triggers a high-priority system notification with custom vibration & audio tag.
+ * Web Locks API keep-alive for Android/Desktop browsers so background tabs are never terminated.
+ */
+let hasAcquiredWebLock = false;
+export function requestWebLockKeepAlive() {
+  if (hasAcquiredWebLock) return;
+  if (typeof navigator !== 'undefined' && 'locks' in navigator) {
+    try {
+      hasAcquiredWebLock = true;
+      navigator.locks.request('prabhat_nepali_alarm_lock', { mode: 'shared' }, () => {
+        return new Promise(() => {
+          // Keep promise pending forever while tab is open
+        });
+      });
+    } catch (e) {
+      console.warn('WebLocks request warning:', e);
+    }
+  }
+}
+
+/**
+ * Triggers a high-priority system notification with custom vibration & audio tag,
+ * with direct lockscreen action buttons for Upload Photo and Dismiss.
  */
 export async function showAlarmBackgroundNotification(alarm: Alarm) {
-  const npt = getNepaliTimeInfo();
   const title = `⏰ Prabhat Alarm Ringing! (${alarm.time} NPT)`;
-  const body = `${alarm.label || 'Wake Up Alarm'} — Mandatory Wake-Up Photo Challenge! Tap to open camera and stop alarm.`;
+  const body = `${alarm.label || 'Wake Up Alarm'} — Mandatory Wake-Up Photo Challenge! Tap to upload photo and stop alarm.`;
 
   // Vibration pattern
   if ('vibrate' in navigator && alarm.vibrate) {
@@ -158,28 +178,57 @@ export async function showAlarmBackgroundNotification(alarm: Alarm) {
 
   if ('Notification' in window && Notification.permission === 'granted') {
     try {
-      // Check for ServiceWorker registration first for robust mobile notification
+      // Check for ServiceWorker registration first for robust lockscreen mobile notification
       if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.getRegistration();
-        if (registration && typeof registration.showNotification === 'function') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (registration as any).showNotification(title, {
-            body,
-            icon: '/icon.svg',
-            badge: '/icon.svg',
-            tag: 'prabhat-nepali-alarm',
-            requireInteraction: true,
-            vibrate: [600, 300, 600, 300, 600, 300],
-            renotify: true,
-          });
-          return;
+        if (registration) {
+          // Tell ServiceWorker to post notification or wake window
+          if (registration.active) {
+            registration.active.postMessage({
+              type: 'TRIGGER_LOCKSCREEN_ALARM',
+              alarm: {
+                id: alarm.id,
+                time: alarm.time,
+                label: alarm.label,
+              },
+            });
+          }
+
+          if (typeof registration.showNotification === 'function') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (registration as any).showNotification(title, {
+              body,
+              icon: '/pwa-192x192.png',
+              badge: '/icon.svg',
+              tag: 'prabhat-nepali-alarm',
+              requireInteraction: true,
+              vibrate: [600, 300, 600, 300, 600, 300, 1000],
+              renotify: true,
+              actions: [
+                {
+                  action: 'upload_photo',
+                  title: '📷 Upload Photo',
+                },
+                {
+                  action: 'open_challenge',
+                  title: '☀️ Stop Alarm',
+                },
+              ],
+              data: {
+                alarmId: alarm.id,
+                action: 'upload_photo',
+                timestamp: Date.now(),
+              },
+            });
+            return;
+          }
         }
       }
 
       // Fallback to standard window Notification
       const notif = new Notification(title, {
         body,
-        icon: '/icon.svg',
+        icon: '/pwa-192x192.png',
         tag: 'prabhat-nepali-alarm',
         requireInteraction: true,
       });
